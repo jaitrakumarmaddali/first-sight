@@ -37,7 +37,13 @@ export default function InsightsPage() {
 
   const handleSuggestFix = async (insightId: string) => {
     try {
-      const wsRes = await fetch('/api/workspace?slug=python-calculator');
+      let slug = '';
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        slug = params.get('slug') || localStorage.getItem('active_project_slug') || '';
+      }
+      const wsUrl = slug ? `/api/workspace?slug=${encodeURIComponent(slug)}` : '/api/workspace';
+      const wsRes = await fetch(wsUrl);
       const wsData = await wsRes.json();
       if (wsData.workspace) {
         await fetch('/api/agent/propose', {

@@ -53,15 +53,24 @@ export default function WorkspacePage() {
   const [isDemoPlaying, setIsDemoPlaying] = useState<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load initial workspace data
-  const loadWorkspace = async () => {
+  // Load workspace data dynamically
+  const loadWorkspace = async (overrideSlug?: string) => {
     try {
-      const res = await fetch('/api/workspace?slug=python-calculator');
+      let slug = overrideSlug;
+      if (!slug && typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        slug = params.get('slug') || localStorage.getItem('active_project_slug') || '';
+      }
+      const url = slug ? `/api/workspace?slug=${encodeURIComponent(slug)}` : '/api/workspace';
+      const res = await fetch(url);
       const data = await res.json();
       if (data.workspace) {
         setWorkspace(data.workspace);
-        setFiles(data.workspace.files || {});
-        setActiveFile(data.workspace.activeFile || 'calculator.py');
+        const wsFiles = data.workspace.files || {};
+        setFiles(wsFiles);
+        const fileNames = Object.keys(wsFiles);
+        const initialActive = data.workspace.activeFile || (fileNames.length > 0 ? fileNames[0] : 'main.py');
+        setActiveFile(initialActive);
 
         // Check if there is an active insight
         if (data.workspace.insights && data.workspace.insights.length > 0) {
@@ -69,7 +78,13 @@ export default function WorkspacePage() {
           if (latest.status === 'NEW' || latest.status === 'ACTIONED') {
             setCurrentInsight(latest);
             setBrainState(latest.status === 'ACTIONED' ? 'ACTION_READY' : 'INSIGHT_DETECTED');
+          } else {
+            setCurrentInsight(null);
+            setBrainState('MONITORING');
           }
+        } else {
+          setCurrentInsight(null);
+          setBrainState('MONITORING');
         }
       }
     } catch (err) {
@@ -79,6 +94,17 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     loadWorkspace();
+    const handleProjectChanged = (e: any) => {
+      if (e.detail?.slug) {
+        loadWorkspace(e.detail.slug);
+      } else {
+        loadWorkspace();
+      }
+    };
+    window.addEventListener('projectChanged', handleProjectChanged);
+    return () => {
+      window.removeEventListener('projectChanged', handleProjectChanged);
+    };
   }, []);
 
   // Code change in active file
@@ -143,17 +169,18 @@ export default function WorkspacePage() {
     }
   };
 
-  // Run Test Suite (12 test assertions)
+  // Run Test Suite
   const handleRunTests = async () => {
     if (!workspace) return;
     setIsTesting(true);
     try {
+      const codeToTest = files[activeFile] || files['calculator.py'] || Object.values(files)[0] || '';
       const res = await fetch('/api/workspace/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspaceId: workspace.id,
-          code: files['calculator.py'] || '',
+          code: codeToTest,
         }),
       });
       const data = await res.json();
@@ -457,24 +484,7 @@ if __name__ == "__main__":
   }, [isDemoPlaying]);
 
   return (
-    <AppShell
-      brainState={brainState}
-      onStartDemo={() => {
-        handleResetDemo();
-        setIsDemoPlaying(true);
-      }}
-      onResetDemo={handleResetDemo}
-    >
-      {/* Interactive Demo Control Bar */}
-      <DemoBar
-        currentStep={demoStep}
-        isPlaying={isDemoPlaying}
-        onTogglePlay={handleToggleAutoPlay}
-        onNextStep={handleNextStep}
-        onPrevStep={handlePrevStep}
-        onJumpToStep={executeStep}
-        onReset={handleResetDemo}
-      />
+    <AppShell brainState={brainState}>
 
       {/* Main 3-Column Core MVP Screen */}
       <div className="flex-1 p-3 sm:p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-[1720px] mx-auto w-full">

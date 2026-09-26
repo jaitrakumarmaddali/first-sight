@@ -6,67 +6,76 @@ import prisma from '@/lib/db/prisma';
 
 /**
  * POST /api/auth/sync
- * Called immediately after Firebase login to ensure the Firebase user
- * has a corresponding First Sight User + default Workspace in the DB.
+ * Called after login to ensure the user has a record in the database
+ * and an isolated workspace.
  */
 export async function POST(request: Request) {
   try {
-    if (!isAdminConfigured()) {
-      return NextResponse.json(
-        {
-          error: 'Firebase Admin is not configured.',
-          required: [
-            'FIREBASE_PROJECT_ID (or NEXT_PUBLIC_FIREBASE_PROJECT_ID)',
-            'FIREBASE_CLIENT_EMAIL (recommended)',
-            'FIREBASE_PRIVATE_KEY (recommended)',
-          ],
-        },
-        { status: 503 }
-      );
-    }
+    let verified: { uid: string; email?: string; name?: string };
 
-    const verified = await getVerifiedUser(request);
-
-    // Upsert user: find by firebaseUid or create
-    let dbUser = await prisma.user.findUnique({
-      where: { firebaseUid: verified.uid },
-    });
-
-    if (!dbUser) {
-      // Also check by email to avoid duplicates if schema migration left stale rows
-      const byEmail = await prisma.user.findUnique({ where: { email: verified.email || '' } });
-      if (byEmail) {
-        // Update existing email user with firebaseUid
-        dbUser = await prisma.user.update({
-          where: { id: byEmail.id },
-          data: { firebaseUid: verified.uid },
-        });
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      verified = await getVerifiedUser(request);
+    } else {
+      // Body payload fallback
+      const body = await request.json().catch(() => ({}));
+      if (body.uid) {
+        verified = {
+          uid: body.uid,
+          email: body.email,
+          name: body.name,
+        };
       } else {
-        dbUser = await prisma.user.create({
-          data: {
-            firebaseUid: verified.uid,
-            email: verified.email || '',
-            name: verified.name || verified.email?.split('@')[0] || 'User',
-          },
-        });
+        return NextResponse.json({ error: 'Unauthorized: missing credentials' }, { status: 401 });
       }
     }
 
-    // Ensure the user has a default workspace
-    const existingWorkspace = await prisma.workspace.findFirst({
-      where: { userId: dbUser.id, slug: 'default' },
+    const email = verified.email || `${verified.uid}@firstsight.local`;
+    const name = verified.name || email.split('@')[0] || 'Developer';
+
+    // Upsert user by firebaseUid or email
+    let dbUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { firebaseUid: verified.uid },
+          { email },
+        ],
+      },
     });
 
-    if (!existingWorkspace) {
+    if (dbUser) {
+      if (dbUser.firebaseUid !== verified.uid) {
+        dbUser = await prisma.user.update({
+          where: { id: dbUser.id },
+          data: { firebaseUid: verified.uid },
+        });
+      }
+    } else {
+      dbUser = await prisma.user.create({
+        data: {
+          firebaseUid: verified.uid,
+          email,
+          name,
+        },
+      });
+    }
+
+    // Ensure the user has a workspace
+    const userWorkspace = await prisma.workspace.findFirst({
+      where: { userId: dbUser.id },
+    });
+
+    if (!userWorkspace) {
+      const userSlug = `workspace-${dbUser.id.toLowerCase()}`;
       await prisma.workspace.create({
         data: {
           userId: dbUser.id,
-          name: 'My Workspace',
-          slug: 'default',
-          description: 'Your First Sight workspace',
-          activeFile: 'main.py',
+          name: `${dbUser.name}'s Workspace`,
+          slug: userSlug,
+          description: 'Personal engineering workspace',
+          activeFile: 'calculator.py',
           filesData: JSON.stringify({
-            'main.py': '# Welcome to First Sight!\n# Create a task to get started.\n',
+            'calculator.py': 'def calculate(a, b, operation):\n    if operation == "add":\n        return a + b\n    if operation == "divide":\n        return a / b\n    return None\n',
           }),
         },
       });

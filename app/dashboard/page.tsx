@@ -25,8 +25,10 @@ export default function DashboardPage() {
   useEffect(() => {
     async function fetchDashboard() {
       try {
+        const slug = typeof window !== 'undefined' ? localStorage.getItem('active_project_slug') : null;
+        const wsUrl = slug ? `/api/workspace?slug=${encodeURIComponent(slug)}` : '/api/workspace';
         const [wsRes, actRes, insRes, agRes] = await Promise.all([
-          fetch('/api/workspace?slug=python-calculator'),
+          fetch(wsUrl),
           fetch('/api/activity?limit=6'),
           fetch('/api/insights'),
           fetch('/api/agent'),
@@ -54,14 +56,14 @@ export default function DashboardPage() {
   }, []);
 
   const task = data?.workspace?.tasks?.[0] || {
-    title: 'Build Python Calculator',
-    progress: 78,
+    title: data?.workspace?.name ? `Configure ${data.workspace.name}` : 'Create Your First Task',
+    progress: data?.workspace?.tasks?.[0]?.progress || 0,
     status: 'IN_PROGRESS',
   };
 
-  const focusTime = data?.workspace?.focusTimeMinutes || 42;
-  const insightsCount = (data?.insights?.length || 0) + 7;
-  const actionsCount = (data?.actions?.length || 0) + 4;
+  const focusTime = data?.workspace?.focusTimeMinutes || 25;
+  const insightsCount = data?.insights?.length || 0;
+  const actionsCount = data?.actions?.length || 0;
 
   return (
     <AppShell>
@@ -78,10 +80,10 @@ export default function DashboardPage() {
               </span>
             </div>
             <h1 className="text-2xl lg:text-3xl font-extrabold text-white mt-1 tracking-tight">
-              First Sight Dashboard
+              {data?.workspace?.name || 'First Sight Dashboard'}
             </h1>
             <p className="text-xs text-gray-400 mt-1">
-              "AI that sees what you're working on and helps before you ask."
+              &quot;AI that sees what you&apos;re working on and helps before you ask.&quot;
             </p>
           </div>
 
@@ -150,11 +152,11 @@ export default function DashboardPage() {
               <Lightbulb className="w-4 h-4 text-amber-400" />
             </div>
             <div>
-              <h3 className="text-2xl font-extrabold text-white">{insightsCount} today</h3>
+              <h3 className="text-2xl font-extrabold text-white">{insightsCount} active</h3>
               <p className="text-xs text-gray-400 mt-1">Autonomous blocker catches</p>
             </div>
             <p className="text-[11px] text-amber-300 font-mono">
-              1 Active Blocker requiring review
+              {insightsCount > 0 ? `${insightsCount} blocker(s) detected` : 'No unresolved blockers'}
             </p>
           </div>
 
@@ -186,26 +188,26 @@ export default function DashboardPage() {
                 <span>What am I doing?</span>
               </h3>
               <span className="text-[10px] font-mono text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
-                Active Task
+                Active Project
               </span>
             </div>
 
             <div className="space-y-3">
               <div>
-                <h4 className="text-sm font-bold text-white">{task.title}</h4>
+                <h4 className="text-sm font-bold text-white">{data?.workspace?.name || task.title}</h4>
                 <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                  Building the core arithmetic calculation module with edge validation and division by zero protection.
+                  {data?.workspace?.description || 'Active project module with live execution and automated testing.'}
                 </p>
               </div>
 
               <div className="p-3 rounded-xl bg-[#111424] border border-[#222740] text-xs space-y-2">
                 <div className="flex items-center justify-between text-gray-300">
-                  <span>Current Step:</span>
-                  <span className="text-blue-300 font-semibold font-mono">Handle errors (calculator.py)</span>
+                  <span>Active File:</span>
+                  <span className="text-blue-300 font-semibold font-mono">{data?.workspace?.activeFile || 'main.py'}</span>
                 </div>
                 <div className="flex items-center justify-between text-gray-300">
-                  <span>Target Assertions:</span>
-                  <span className="text-emerald-400 font-mono font-bold">12 pytest tests</span>
+                  <span>Engine:</span>
+                  <span className="text-emerald-400 font-mono font-bold">Python 3.13 Runtime</span>
                 </div>
               </div>
 
@@ -227,34 +229,41 @@ export default function DashboardPage() {
                 <span>What has AI noticed?</span>
               </h3>
               <span className="text-[10px] font-mono text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded">
-                Gemma + Flash
+                Gemma + Gemini
               </span>
             </div>
 
             <div className="space-y-3">
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-200 flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Repeated ZeroDivisionError</span>
-                  </span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
-                    94% Confidence
-                  </span>
+              {data?.insights?.[0] ? (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-200 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{data.insights[0].title}</span>
+                    </span>
+                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
+                      {Math.round((data.insights[0].confidence || 0.95) * 100)}% Confidence
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-300 leading-relaxed">
+                    {data.insights[0].summary}
+                  </p>
                 </div>
-                <p className="text-[11px] text-gray-300 leading-relaxed">
-                  First Sight detected 3 identical division crashes in calculator.py without waiting for a question.
-                </p>
-              </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-[#111424] border border-[#222740] text-xs text-gray-400">
+                  <span className="text-emerald-400 font-semibold block mb-1">✓ No Blockers Detected</span>
+                  First Sight is continuously observing terminal runs and file changes.
+                </div>
+              )}
 
               <div className="p-3 rounded-xl bg-[#111424] border border-[#222740] text-xs space-y-2">
                 <div className="flex items-center justify-between text-gray-400 text-[11px]">
-                  <span>Edge Classifier:</span>
-                  <span className="text-gray-200 font-mono">Gemma 4 E4B</span>
+                  <span>Activity Classifier:</span>
+                  <span className="text-gray-200 font-mono">Gemma 4 Edge SLM</span>
                 </div>
                 <div className="flex items-center justify-between text-gray-400 text-[11px]">
-                  <span>Reasoning Model:</span>
-                  <span className="text-gray-200 font-mono">gemini-3.8-flash</span>
+                  <span>Reasoning Engine:</span>
+                  <span className="text-gray-200 font-mono">Google Gemini AI</span>
                 </div>
               </div>
 
@@ -281,27 +290,34 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-3">
-              <div className="p-3.5 rounded-xl bg-[#111426] border border-blue-500/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-blue-200">
-                    Action Proposal Ready
-                  </h4>
-                  <span className="text-[10px] font-mono text-emerald-400">Low Risk</span>
+              {data?.actions?.[0] ? (
+                <div className="p-3.5 rounded-xl bg-[#111426] border border-blue-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-blue-200">
+                      {data.actions[0].title}
+                    </h4>
+                    <span className="text-[10px] font-mono text-emerald-400">{data.actions[0].risk || 'Low Risk'}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-300 leading-relaxed">
+                    {data.actions[0].description}
+                  </p>
+                  <Link
+                    href="/agent"
+                    className="block text-center w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow transition-colors"
+                  >
+                    Review & Approve
+                  </Link>
                 </div>
-                <p className="text-[11px] text-gray-300 leading-relaxed">
-                  "Add division-by-zero validation to calculator.py" is waiting for your sanction before executing.
-                </p>
-                <Link
-                  href="/workspace"
-                  className="block text-center w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow transition-colors"
-                >
-                  Review & Approve
-                </Link>
-              </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-[#111424] border border-[#222740] text-xs text-gray-400">
+                  <span className="text-blue-400 font-semibold block mb-1">No Pending Approvals</span>
+                  When the AI detects repeated errors, proposed fixes will appear here for your explicit authorization.
+                </div>
+              )}
 
               <div className="flex items-center gap-2 text-xs text-gray-400 pt-1">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Zero unsolicited file modifications.</span>
+                <span>Strict user approval policy enforced.</span>
               </div>
             </div>
           </div>
@@ -318,28 +334,34 @@ export default function DashboardPage() {
               href="/activity"
               className="text-xs text-blue-400 hover:text-blue-300 font-medium"
             >
-              View Full Timeline →
+              View Full Timeline &rarr;
             </Link>
           </div>
 
           <div className="divide-y divide-[#171B2D]">
-            {data?.activities?.slice(0, 4).map((act: any) => (
-              <div key={act.id} className="py-2.5 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  <span className="font-semibold text-gray-200">{act.eventType}</span>
-                  <span className="text-gray-400 hidden sm:inline">{act.description}</span>
+            {data?.activities?.length > 0 ? (
+              data.activities.slice(0, 4).map((act: any) => (
+                <div key={act.id} className="py-2.5 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    <span className="font-semibold text-gray-200">{act.eventType}</span>
+                    <span className="text-gray-400 hidden sm:inline">{act.description}</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-[11px] text-gray-500">
+                    {act.gemmaClass && (
+                      <span className="px-1.5 py-0.2 rounded bg-[#131627] text-gray-400 border border-[#21263E]">
+                        {act.gemmaClass}
+                      </span>
+                    )}
+                    <span>{new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 font-mono text-[11px] text-gray-500">
-                  {act.gemmaClass && (
-                    <span className="px-1.5 py-0.2 rounded bg-[#131627] text-gray-400 border border-[#21263E]">
-                      {act.gemmaClass}
-                    </span>
-                  )}
-                  <span>{new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
+              ))
+            ) : (
+              <div className="py-4 text-xs text-gray-500 text-center font-mono">
+                No activity yet. Run code in the workspace to start the feed.
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>

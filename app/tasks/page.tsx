@@ -23,9 +23,15 @@ export default function TasksPage() {
   const [newDescription, setNewDescription] = useState('');
   const [newPriority, setNewPriority] = useState('HIGH');
 
-  const loadTasks = async () => {
+  const loadTasks = async (overrideSlug?: string) => {
     try {
-      const wsRes = await fetch('/api/workspace?slug=python-calculator');
+      let slug = overrideSlug;
+      if (!slug && typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        slug = params.get('slug') || localStorage.getItem('active_project_slug') || '';
+      }
+      const url = slug ? `/api/workspace?slug=${encodeURIComponent(slug)}` : '/api/workspace';
+      const wsRes = await fetch(url);
       const wsData = await wsRes.json();
       if (wsData.workspace) {
         setWorkspace(wsData.workspace);
@@ -40,6 +46,17 @@ export default function TasksPage() {
 
   useEffect(() => {
     loadTasks();
+    const handleProjectChanged = (e: any) => {
+      if (e.detail?.slug) {
+        loadTasks(e.detail.slug);
+      } else {
+        loadTasks();
+      }
+    };
+    window.addEventListener('projectChanged', handleProjectChanged);
+    return () => {
+      window.removeEventListener('projectChanged', handleProjectChanged);
+    };
   }, []);
 
   const handleCreateTask = async (e: React.FormEvent) => {

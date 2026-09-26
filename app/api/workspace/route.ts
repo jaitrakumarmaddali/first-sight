@@ -6,10 +6,37 @@ import prisma from '@/lib/db/prisma';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const slug = searchParams.get('slug') || 'python-calculator';
+    const slug = searchParams.get('slug');
+    const id = searchParams.get('id');
+    const listOnly = searchParams.get('list') === 'true';
+
+    // Return list of all projects / workspaces
+    if (listOnly) {
+      const workspaces = await prisma.workspace.findMany({
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          description: true,
+          activeFile: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      return NextResponse.json({ workspaces });
+    }
+
+    let whereClause: any = {};
+    if (id) {
+      whereClause = { id };
+    } else if (slug) {
+      whereClause = { slug };
+    }
 
     let workspace = await prisma.workspace.findFirst({
-      where: { slug },
+      where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
+      orderBy: { updatedAt: 'desc' },
       include: {
         tasks: {
           include: { subtasks: { orderBy: { order: 'asc' } } },
@@ -28,7 +55,24 @@ export async function GET(request: Request) {
     });
 
     if (!workspace) {
-      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+      // Fallback: create default workspace if completely empty
+      workspace = await prisma.workspace.create({
+        data: {
+          name: 'Primary Project',
+          slug: 'primary-project',
+          description: 'Production Engineering Project',
+          activeFile: 'main.py',
+          filesData: JSON.stringify({
+            'main.py': '# First Sight Python Workspace\n\ndef main():\n    print("Hello from First Sight AI!")\n\nif __name__ == "__main__":\n    main()\n',
+          }),
+        },
+        include: {
+          tasks: { include: { subtasks: true } },
+          insights: true,
+          agentActions: true,
+          aiConfig: true,
+        },
+      });
     }
 
     const files = workspace.filesData ? JSON.parse(workspace.filesData) : {};
@@ -50,6 +94,79 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     console.error('Error fetching workspace:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { name, description, activeFile = 'main.py' } = body;
+
+    if (!name || typeof name !== 'string') {
+      return NextResponse.json({ error: 'Project name is required' }, { status: 400 });
+    }
+
+    const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project';
+    const slug = `${baseSlug}-${Date.now().toString(36)}`;
+
+    const initialFiles = {
+      [activeFile]: `# Project: ${name}\n# Powered by First Sight AI\n\ndef run():\n    print("Starting ${name}...")\n\nif __name__ == "__main__":\n    run()\n`,
+    };
+
+    const newWorkspace = await prisma.workspace.create({
+      data: {
+        name,
+        slug,
+        description: description || `Workspace for ${name}`,
+        activeFile,
+        filesData: JSON.stringify(initialFiles),
+      },
+    });
+
+    // Create a starter task for the new project
+    await prisma.task.create({
+      data: {
+        workspaceId: newWorkspace.id,
+        title: `Initialize ${name}`,
+        description: 'Set up core modules and verify test suite',
+        status: 'IN_PROGRESS',
+        priority: 'HIGH',
+        progress: 10,
+        subtasks: {
+          create: [
+            { title: 'Define data models and core logic', completed: false, order: 1 },
+            { title: 'Add test cases and edge validation', completed: false, order: 2 },
+          ],
+        },
+      },
+    });
+
+    // Log project creation event
+    await prisma.activityEvent.create({
+      data: {
+        workspaceId: newWorkspace.id,
+        eventType: 'PROJECT_CREATED',
+        category: 'SYSTEM',
+        description: `Created new project "${name}"`,
+        isSignificant: true,
+        gemmaClass: 'MILESTONE',
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      workspace: {
+        id: newWorkspace.id,
+        name: newWorkspace.name,
+        slug: newWorkspace.slug,
+        description: newWorkspace.description,
+        activeFile: newWorkspace.activeFile,
+        files: initialFiles,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error creating project:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -80,7 +197,6 @@ export async function PUT(request: Request) {
       },
     });
 
-    // Record file edited/saved event
     if (activeFile && content !== undefined) {
       await prisma.activityEvent.create({
         data: {
