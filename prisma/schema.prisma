@@ -1,0 +1,207 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id          String      @id @default(cuid())
+  firebaseUid String?     @unique
+  email       String      @unique
+  name        String
+  avatar      String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  workspaces  Workspace[]
+}
+
+model Workspace {
+  id               String            @id @default(cuid())
+  userId           String?
+  user             User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name             String
+  slug             String            @unique
+  description      String?
+  activeFile       String            @default("calculator.py")
+  filesData        String            @default("{}") // JSON string of virtual files
+  currentTaskId    String?
+  focusTimeMinutes Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  tasks            Task[]
+  activities       ActivityEvent[]
+  insights         AIInsight[]
+  agentActions     AgentAction[]
+  conversations    Conversation[]
+  voiceSessions    VoiceSession[]
+  visionAnalyses   VisionAnalysis[]
+  notifications    Notification[]
+  aiConfig         AIConfiguration?
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      String    @default("IN_PROGRESS") // NOT_STARTED, IN_PROGRESS, BLOCKED, COMPLETED
+  priority    String    @default("HIGH") // LOW, MEDIUM, HIGH, URGENT
+  progress    Int       @default(0) // 0 - 100
+  subtasks    Subtask[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Subtask {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title     String
+  completed Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ActivityEvent {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  eventType     String // FILE_OPENED, FILE_EDITED, FILE_SAVED, CODE_RUN, TEST_STARTED, TEST_FAILED, TEST_PASSED, etc.
+  category      String    @default("SYSTEM") // FILES, TESTS, AI, AGENT, ERRORS, SYSTEM
+  description   String
+  metadata      String? // JSON string
+  isSignificant Boolean   @default(true) // Gemma classification result
+  gemmaClass    String? // e.g. "RELEVANT_BLOCKER", "NOISE", "CRITICAL_FAILURE"
+  timestamp     DateTime  @default(now())
+}
+
+model AIInsight {
+  id              String        @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  insightType     String // POSSIBLE_BLOCKER, SUGGESTION, PATTERN, RESOLVED
+  title           String
+  summary         String
+  evidence        String?
+  suggestedAction String?
+  confidence      Float         @default(0.92)
+  risk            String        @default("LOW") // LOW, MEDIUM, HIGH
+  status          String        @default("NEW") // NEW, REVIEWED, ACTIONED, DISMISSED
+  agentActions    AgentAction[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model AgentAction {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  insightId   String?
+  insight     AIInsight?       @relation(fields: [insightId], references: [id], onDelete: SetNull)
+  title       String
+  description String
+  targetFile  String
+  patchDiff   String?
+  risk        String           @default("LOW") // LOW, MEDIUM, HIGH
+  status      String           @default("PROPOSED") // PROPOSED, APPROVED, REJECTED, EXECUTED, FAILED
+  executions  AgentExecution[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model AgentExecution {
+  id             String              @id @default(cuid())
+  actionId       String
+  action         AgentAction         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  status         String              @default("PREPARING") // PREPARING, EXECUTING, TESTING, VERIFYING, COMPLETED, FAILED
+  timeline       String              @default("[]") // JSON array of timeline steps
+  stdout         String?
+  stderr         String?
+  executionTime  Int                 @default(0) // ms
+  verification   VerificationResult?
+  createdAt      DateTime            @default(now())
+  completedAt    DateTime?
+}
+
+model VerificationResult {
+  id              String         @id @default(cuid())
+  executionId     String         @unique
+  execution       AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  passed          Boolean        @default(false)
+  totalTests      Int            @default(0)
+  passedTests     Int            @default(0)
+  failedTests     Int            @default(0)
+  summary         String
+  testOutput      String?
+  analyzedByModel String         @default("gemini-3.8-flash")
+  createdAt       DateTime       @default(now())
+}
+
+model Notification {
+  id          String     @id @default(cuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  message     String
+  type        String     @default("INFO") // INFO, WARNING, SUCCESS, ERROR, ACTION_REQUIRED
+  read        Boolean    @default(false)
+  actionUrl   String?
+  createdAt   DateTime   @default(now())
+}
+
+model Conversation {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  messages    String    @default("[]") // JSON string of chat messages
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model VoiceSession {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  status      String    @default("IDLE") // IDLE, LISTENING, PROCESSING, SPEAKING, ERROR
+  transcript  String?
+  aiResponse  String?
+  audioUrl    String?
+  createdAt   DateTime  @default(now())
+}
+
+model VisionAnalysis {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  imageUrl        String
+  issuesDetected  String    @default("[]") // JSON array of strings
+  explanation     String
+  suggestedFix    String?
+  confidence      Float     @default(0.95)
+  analyzedByModel String    @default("gemini-omni-1.1-flash")
+  createdAt       DateTime  @default(now())
+}
+
+model AIConfiguration {
+  id               String    @id @default(cuid())
+  workspaceId      String    @unique
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  flashModel       String    @default("gemini-3.8-flash")
+  gemmaModel       String    @default("Gemma 4 E2B/E4B")
+  liveModel        String    @default("gemini-3.8-live")
+  ttsModel         String    @default("gemini-3.8-flash-tts")
+  transcribeModel  String    @default("gemini-3.5-transcribe")
+  visionModel      String    @default("gemini-omni-1.1-flash")
+  monitoringActive Boolean   @default(true)
+  autoSuggest      Boolean   @default(true)
+  sensitivity      String    @default("HIGH") // LOW, MEDIUM, HIGH
+  isDemoMode       Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
